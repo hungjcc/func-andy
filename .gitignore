@@ -104,6 +104,24 @@ ENV/
 env.bak/
 venv.bak/
 
+# Azure Functions specific
+local.settings.json
+.python_packages/
+.azure/
+
+# Azure Storage Emulator files
+__azurite_db_*.json
+__blobstorage__/
+__queuestorage__/
+AzuriteConfig/
+
+# Keep credential.py in source control as requested
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
 # Spyder project settings
 .spyderproject
 .spyproject
