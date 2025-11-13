@@ -27,7 +27,7 @@ def timer_triggered_stock_update(mytimer: func.TimerRequest) -> None:
     except Exception as e:
         logging.error(f"Error in timer triggered update: {str(e)}")
 
-# Remove HTTP trigger
+
 
 
 
