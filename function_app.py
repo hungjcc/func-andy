@@ -15,7 +15,7 @@ conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={
 
 app = func.FunctionApp()
 
-@app.schedule(schedule="0 30 21 * * *", arg_name="mytimer", run_on_startup=True)
+@app.schedule(schedule="0 30 13 * * *", arg_name="mytimer", run_on_startup=True)
 def timer_triggered_stock_update(mytimer: func.TimerRequest) -> None:
     if mytimer.past_due:
         logging.info('The timer is past due!')
