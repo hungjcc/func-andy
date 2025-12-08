@@ -29,38 +29,6 @@ def timer_triggered_stock_update(mytimer: func.TimerRequest) -> None:
 
 
 
-
-
-# def func_andy(req: func.HttpRequest) -> func.HttpResponse:
-#    logging.info('Python HTTP trigger function processed a request.')
-#    
-#    try:
-#        # Get market parameter from query string or default to None (all markets)
-#        market = req.params.get('market')
-#        if market:
-#            market = market.strip().upper()
-#            if market not in ("HK", "US"):
-#                return func.HttpResponse(
-#                    "Invalid market parameter. Use 'HK' or 'US' or omit for all markets.",
-#                    status_code=400
-#                )
-#        
-#        logging.info(f"Start update at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (market={market or 'ALL'})")
-#        update_all(market)
-#        logging.info(f"End update at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-#        
-#        return func.HttpResponse(
-#            "Update completed successfully.",
-#            status_code=200
-#        )
-###            
-#    except Exception as e:
-#        logging.error(f"Error in function: {str(e)}")
-#        return func.HttpResponse(
-#            f"An error occurred: {str(e)}",
-#            status_code=500
-#        )
-
 def get_latest_price_and_name(symbol, market_type):
     query_symbol = f"{symbol}.HK" if market_type == "HK" else symbol
     try:
