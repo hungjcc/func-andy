@@ -1,0 +1,171 @@
+╔═══════════════════════════════════════════════════════════════════════╗
+║                    AZURE FUNCTIONS - LOGIC FLOW                       ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  START: Timer Trigger (Daily at 21:30 HKT / 13:30 UTC)             │
+│  Schedule: "0 30 13 * * *" (CRON format)                            │
+└─────────────────┬───────────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  timer_triggered_stock_update()                                     │
+│  - Check if timer is past due                                       │
+│  - Log: "Python timer trigger function started"                    │
+└─────────────────┬───────────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  STEP 1: FETCH STOCK DATA                                           │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
+│  update_all(market_type=None)                                       │
+│                                                                     │
+│  ├─ Connect to SQLite database                                      │
+│  │  └─ db_path = ~/stock_data.db                                   │
+│  │                                                                  │
+│  ├─ Fetch all stocks from [test-myproject-table]                   │
+│  │  └─ 22 stocks: 14 HK + 8 US                                     │
+│  │                                                                  │
+│  └─ Can filter by market_type ("HK", "US", or None for all)      │
+└─────────────────┬───────────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  STEP 2: PROCESS EACH STOCK (LOOP)                                  │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
+│  for each stock in rows:                                            │
+│                                                                     │
+│  ├─ Extract: StockNumber, Symbol, CompanyName, MarketType           │
+│  │                                                                  │
+│  ├─ get_latest_price_and_name(symbol, market_type)                 │
+│  │  ├─ For HK: Query as "0005.HK", "0388.HK", etc.               │
+│  │  ├─ For US: Query as "AAPL", "TSLA", etc.                     │
+│  │  └─ Fetch from Yahoo Finance via yfinance                       │
+│  │     ├─ ticker.history(period="1d")                             │
+│  │     └─ Extract: price (Close), company_name (shortName)          │
+│  │                                                                  │
+│  └─ Check if price is None (failed to fetch)                        │
+│     ├─ If Yes: Log warning, increment failed count, continue       │
+│     └─ If No: Proceed to update database                            │
+└─────────────────┬───────────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  STEP 3: UPDATE DATABASE                                            │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
+│  For each stock successfully fetched:                               │
+│                                                                     │
+│  ├─ Get timestamp = datetime.now()                                  │
+│  │                                                                  │
+│  ├─ INSERT into StockPriceHistory (historical tracking)             │
+│  │  └─ Columns: StockNumber, Symbol, CompanyName, Price,           │
+│  │             Timestamp, MarketType                               │
+│  │                                                                  │
+│  ├─ UPDATE [test-myproject-table] (latest price)                    │
+│  │  ├─ SET Price = price                                           │
+│  │  ├─ SET Timestamp = timestamp                                    │
+│  │  └─ SET CompanyName = company_name                              │
+│  │     WHERE StockNumber = stock_id                                │
+│  │                                                                  │
+│  ├─ conn.commit() (individual commit per stock)                     │
+│  │  └─ Ensures data integrity if errors occur                      │
+│  │                                                                  │
+│  └─ Log success: "✓ Updated {symbol} ({market}): {price}"          │
+│                                                                     │
+│  ERROR HANDLING: Try/Except with conn.rollback()                    │
+│  └─ If error: Log error, rollback, increment failed count           │
+└─────────────────┬───────────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  STEP 4: UPLOAD TO AZURE BLOB STORAGE                               │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
+│  upload_db_to_blob()                                                │
+│                                                                     │
+│  ├─ Check if STORAGE_CONNECTION_STRING is configured                │
+│  │  └─ Source: AzureWebJobsStorage env variable                    │
+│  │                                                                  │
+│  ├─ Check if database file exists at db_path                        │
+│  │                                                                  │
+│  ├─ Create BlobClient with connection string                        │
+│  │  ├─ Container: "stock-data"                                     │
+│  │  └─ Blob: "stock_data.db"                                       │
+│  │                                                                  │
+│  ├─ Open database file and upload to blob                           │
+│  │  └─ overwrite=True (replaces previous version)                   │
+│  │                                                                  │
+│  └─ Log success: "✓ Database uploaded to Azure Blob Storage"        │
+│                                                                     │
+│  ERROR HANDLING: Try/Except                                         │
+│  └─ If error: Log error, return False                              │
+└─────────────────┬───────────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  STEP 5: LOGGING & SUMMARY                                          │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
+│  Final Summary:                                                     │
+│                                                                     │
+│  ├─ Successfully Updated: N stocks                                  │
+│  ├─ Failed: M stocks                                                │
+│  ├─ Total Processed: 22 stocks                                      │
+│  ├─ Success Rate: (N/22)*100%                                       │
+│  └─ Log: "Timer triggered stock update completed successfully"     │
+└─────────────────┬───────────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  END: Sleep until next scheduled time (21:30 HKT next day)          │
+└─────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════
+DATABASE STRUCTURE
+═══════════════════════════════════════════════════════════════════════
+
+┌──────────────────────────────┐  ┌──────────────────────────────────┐
+│  test-myproject-table        │  │  StockPriceHistory               │
+│  (Main Table)                │  │  (Historical Tracking)           │
+├──────────────────────────────┤  ├──────────────────────────────────┤
+│ StockNumber (PK)             │  │ id (PK, Auto-increment)          │
+│ Symbol                       │  │ StockNumber                      │
+│ CompanyName                  │  │ Symbol                           │
+│ MarketType (HK/US)           │  │ CompanyName                      │
+│ Price (Latest)               │  │ Price (Historical)               │
+│ Timestamp (Last Update)      │  │ Timestamp (Record Time)          │
+│                              │  │ MarketType                       │
+│                              │  │                                  │
+│ Total: 22 records            │  │ Total: 27+ records (growing)     │
+│ HK Stocks: 14                │  │                                  │
+│ US Stocks: 8                 │  │ Used for trend analysis          │
+└──────────────────────────────┘  └──────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════
+DATA FLOW EXAMPLE
+═══════════════════════════════════════════════════════════════════════
+
+Input: Symbol "0005", Market "HK"
+  │
+  ├─ Query Yahoo Finance: yf.Ticker("0005.HK")
+  ├─ Response: Price=109.5, Name="HSBC HOLDINGS"
+  │
+  ├─ INSERT StockPriceHistory
+  │  └─ (1, "0005", "HSBC HOLDINGS", 109.5, 2025-12-10 21:30:00, "HK")
+  │
+  ├─ UPDATE test-myproject-table WHERE StockNumber=1
+  │  └─ Price=109.5, Timestamp=2025-12-10 21:30:00, CompanyName="HSBC HOLDINGS"
+  │
+  └─ Result: ✓ Updated 0005 (HK): 109.5
+
+═══════════════════════════════════════════════════════════════════════
+KEY FEATURES
+═══════════════════════════════════════════════════════════════════════
+
+✓ AUTOMATED: Runs daily at 21:30 HKT without manual intervention
+✓ RELIABLE: Individual commits per stock + error handling/rollback
+✓ TRACEABLE: Comprehensive logging of every step and error
+✓ SCALABLE: Easy to add more stocks to test-myproject-table
+✓ BACKED UP: Database automatically uploaded to Azure Blob Storage
+✓ INTELLIGENT: Appends .HK suffix for Hong Kong stocks automatically
+✓ RESILIENT: Continues processing even if one stock fails
+
+═══════════════════════════════════════════════════════════════════════

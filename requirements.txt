@@ -4,4 +4,4 @@
 
 azure-functions
 yfinance
-pypyodbc
+azure-storage-blob

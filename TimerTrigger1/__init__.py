@@ -1,7 +1,7 @@
 import datetime
 import logging
 import azure.functions as func
-from function_app import update_all
+from function_app2 import update_all
 
 def main(mytimer: func.TimerRequest) -> None:
     utc_timestamp = datetime.datetime.utcnow().replace(

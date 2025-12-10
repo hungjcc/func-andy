@@ -1,27 +1,30 @@
-import azure.functions as func
-import logging
+#!/usr/bin/env python
+"""Test script to manually trigger the stock update function"""
+
 import sys
-from datetime import datetime
-import sqlite3
 import os
+import sqlite3
+from datetime import datetime
 from io import BytesIO
 import tempfile
 
+# Add the current directory to the path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import function components
 import yfinance as yf
 from azure.storage.blob import BlobClient
 
-# Azure Storage configuration
+# Configuration
 STORAGE_CONNECTION_STRING = os.getenv("AzureWebJobsStorage")
 BLOB_CONTAINER_NAME = "stock-data"
 BLOB_NAME = "stock_data.db"
-
-app = func.FunctionApp()
 
 def download_db_from_blob():
     """Download the SQLite database from Azure Blob Storage to a temporary file."""
     try:
         if not STORAGE_CONNECTION_STRING:
-            logging.warning("AzureWebJobsStorage not configured. Cannot download blob.")
+            print("⚠️  AzureWebJobsStorage not configured. Cannot download blob.")
             return None
         
         blob_client = BlobClient.from_connection_string(
@@ -39,21 +42,21 @@ def download_db_from_blob():
         temp_file.write(db_bytes.getvalue())
         temp_file.close()
         
-        logging.info(f"✓ Database downloaded from Azure Blob Storage to {temp_file.name}")
+        print(f"✓ Database downloaded from Azure Blob Storage to {temp_file.name}")
         return temp_file.name
     except Exception as e:
-        logging.error(f"Error downloading database from blob storage: {e}")
+        print(f"✗ Error downloading database from blob storage: {e}")
         return None
 
 def upload_db_to_blob(db_path):
     """Upload the SQLite database to Azure Blob Storage."""
     try:
         if not STORAGE_CONNECTION_STRING:
-            logging.warning("AzureWebJobsStorage not configured. Skipping blob upload.")
+            print("⚠️  AzureWebJobsStorage not configured. Skipping blob upload.")
             return False
         
         if not os.path.exists(db_path):
-            logging.warning(f"Database file not found at {db_path}. Skipping upload.")
+            print(f"⚠️  Database file not found at {db_path}. Skipping upload.")
             return False
         
         blob_client = BlobClient.from_connection_string(
@@ -66,45 +69,11 @@ def upload_db_to_blob(db_path):
             blob_client.upload_blob(data, overwrite=True)
         
         file_size = os.path.getsize(db_path)
-        logging.info(f"✓ Database uploaded to Azure Blob Storage ({file_size} bytes)")
+        print(f"✓ Database uploaded to Azure Blob Storage ({file_size} bytes)")
         return True
     except Exception as e:
-        logging.error(f"Error uploading database to blob storage: {e}")
+        print(f"✗ Error uploading database to blob storage: {e}")
         return False
-
-@app.schedule(schedule="0 30 13 * * *", arg_name="mytimer", run_on_startup=True)
-def timer_triggered_stock_update(mytimer: func.TimerRequest) -> None:
-    if mytimer.past_due:
-        logging.info('The timer is past due!')
-
-    logging.info('Python timer trigger function started')
-    db_path = None
-    try:
-        # Download database from blob storage
-        db_path = download_db_from_blob()
-        if not db_path:
-            logging.error("Failed to download database from blob storage")
-            return
-        
-        # Update all stocks
-        update_all(db_path)
-        
-        # Upload updated database back to blob storage
-        upload_db_to_blob(db_path)
-        
-        logging.info("Timer triggered stock update completed successfully")
-    except Exception as e:
-        logging.error(f"Error in timer triggered update: {str(e)}")
-    finally:
-        # Clean up temporary file
-        if db_path and os.path.exists(db_path):
-            try:
-                os.remove(db_path)
-                logging.info(f"Cleaned up temporary database file: {db_path}")
-            except Exception as e:
-                logging.warning(f"Failed to clean up temporary file: {e}")
-
-
 
 def get_latest_price_and_name(symbol, market_type):
     query_symbol = f"{symbol}.HK" if market_type == "HK" else symbol
@@ -119,26 +88,25 @@ def get_latest_price_and_name(symbol, market_type):
         else:
             return None, company_name
     except Exception as e:
-        logging.error(f"Error fetching from Yahoo Finance for {query_symbol}: {e}")
+        print(f"✗ Error fetching from Yahoo Finance for {query_symbol}: {e}")
         return None, None
 
-
 def update_all(db_path, market_type=None):
-    """Update all stocks in the blob database. market_type can be 'HK', 'US', or None for all."""
+    """Update all stocks in the blob database."""
     try:
-        logging.info(f"Connecting to database at {db_path}...")
+        print(f"\n📊 Connecting to database at {db_path}...")
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
         if market_type:
-            logging.info(f"Fetching stocks for market: {market_type}")
+            print(f"Fetching stocks for market: {market_type}")
             cursor.execute("""
                 SELECT StockNumber, Symbol, CompanyName, MarketType
                 FROM stocks
                 WHERE MarketType = ?
             """, (market_type,))
         else:
-            logging.info("Fetching stocks for all markets")
+            print("Fetching stocks for all markets")
             cursor.execute("""
                 SELECT StockNumber, Symbol, CompanyName, MarketType
                 FROM stocks
@@ -147,19 +115,18 @@ def update_all(db_path, market_type=None):
         rows = cursor.fetchall()
         total = len(rows)
         if total == 0:
-            logging.info("No stocks found to update.")
+            print("⚠️  No stocks found to update.")
             return
 
-        logging.info(f"Updating {total} stocks (market={market_type or 'ALL'})...")
+        print(f"\n🔄 Updating {total} stocks (market={market_type or 'ALL'})...\n")
         updated = 0
         failed = 0
 
         for stock_id, symbol, existing_name, mkt in rows:
-            # For HK, symbol may be stored as zero-padded; ensure correct query
             try:
                 price, company_name = get_latest_price_and_name(symbol, mkt)
                 if price is None:
-                    logging.warning(f"✗ No data for {symbol} ({mkt})")
+                    print(f"  ✗ No data for {symbol} ({mkt})")
                     failed += 1
                     continue
 
@@ -180,20 +147,54 @@ def update_all(db_path, market_type=None):
 
                 conn.commit()
                 updated += 1
-                logging.info(f"✓ Updated {symbol} ({mkt}): {price}")
+                print(f"  ✓ {symbol} ({mkt}): ${price}")
             except Exception as e:
-                logging.error(f"✗ Error processing {symbol} ({mkt}): {e}")
+                print(f"  ✗ Error processing {symbol} ({mkt}): {e}")
                 conn.rollback()
                 failed += 1
 
-        logging.info(f"\nFinished. Updated: {updated}, Failed: {failed}, Total: {total}")
+        print(f"\n📈 Results: Updated {updated}, Failed {failed}, Total {total}")
 
     except Exception as e:
-        logging.error(f"Database error: {e}")
+        print(f"✗ Database error: {e}")
     finally:
         try:
             cursor.close()
             conn.close()
         except:
             pass
-            pass
+
+def main():
+    print("=" * 60)
+    print("Testing Stock Update Function")
+    print("=" * 60)
+    
+    db_path = None
+    try:
+        # Download database from blob storage
+        db_path = download_db_from_blob()
+        if not db_path:
+            print("\n✗ Failed to download database from blob storage")
+            return
+        
+        # Update all stocks
+        update_all(db_path)
+        
+        # Upload updated database back to blob storage
+        print("\n📤 Uploading updated database back to blob storage...")
+        upload_db_to_blob(db_path)
+        
+        print("\n✅ Test completed successfully!")
+    except Exception as e:
+        print(f"\n✗ Error during test: {str(e)}")
+    finally:
+        # Clean up temporary file
+        if db_path and os.path.exists(db_path):
+            try:
+                os.remove(db_path)
+                print(f"🗑️  Cleaned up temporary file")
+            except Exception as e:
+                print(f"⚠️  Failed to clean up: {e}")
+
+if __name__ == "__main__":
+    main()

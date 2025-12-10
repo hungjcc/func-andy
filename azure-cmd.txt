@@ -1,0 +1,15 @@
+az group list --output table
+
+az functionapp list --resource-group handon1 --query "[].{name:name, state:state, location:location}" --output table
+
+
+
+App Name	Status	Region	Resource Group
+func-action2609	Running	East Asia	handon1
+func-andy2609	Running	East Asia	handon1
+func-stock-andy	Running	East Asia	handon1
+func-time2609	Running	East Asia	handon1
+
+App Service Name	State	Resource Group
+my-iom-site	Running	handon1
+azure-flask-andy	Running	handon1
